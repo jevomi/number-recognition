@@ -6,14 +6,9 @@ import pytesseract
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-# === НАСТРОЙКА TESSERACT ===
 os.environ['TESSDATA_PREFIX'] = 'C:/msys64/ucrt64/share/tessdata/'
 pytesseract.pytesseract.tesseract_cmd = 'C:/msys64/ucrt64/bin/tesseract.exe'
 
-
-# ─────────────────────────────────────────────
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ─────────────────────────────────────────────
 
 def to_gray(src):
     if len(src.shape) == 3:
@@ -37,10 +32,6 @@ def remove_noise(binary, size=2):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
     return cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
 
-
-# ─────────────────────────────────────────────
-# 11 МЕТОДОВ ПРЕДОБРАБОТКИ
-# ─────────────────────────────────────────────
 
 def process_method_1(src):
     gray = to_gray(src)
@@ -109,7 +100,7 @@ def process_method_7(src):
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
     tophat   = cv2.morphologyEx(scaled, cv2.MORPH_TOPHAT,   kernel)
     blackhat = cv2.morphologyEx(scaled, cv2.MORPH_BLACKHAT, kernel)
-    chosen = tophat if tophat.std() >= blackhat.std() else blackhat
+    chosen = tohat if tophat.std() >= blackhat.std() else blackhat
     _, binary = cv2.threshold(chosen, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return remove_noise(binary)
 
@@ -151,13 +142,8 @@ def process_method_10(src):
 
 
 def process_method_11(src):
-    # Без предобработки (только приведение к ч/б)
     return to_gray(src)
 
-
-# ─────────────────────────────────────────────
-# ДИСПЕТЧЕР МЕТОДОВ
-# ─────────────────────────────────────────────
 
 METHODS = {i: globals()[f"process_method_{i}"] for i in range(1, 12)}
 
@@ -168,10 +154,6 @@ def apply_preprocessing(src, method_id):
     return fn(src)
 
 
-# ─────────────────────────────────────────────
-# УМНЫЙ КАСКАДНЫЙ OCR
-# ─────────────────────────────────────────────
-
 def run_ocr(img):
     n_white = np.sum(img == 255)
     n_black = np.sum(img == 0)
@@ -179,24 +161,21 @@ def run_ocr(img):
 
     padded = cv2.copyMakeBorder(img, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=bg_color)
     
-    # Готовим варианты: оригинал и инверсию
     v1 = padded if bg_color == 255 else cv2.bitwise_not(padded)
     v2 = cv2.bitwise_not(v1)
 
-    # Каскад конфигураций: сначала быстрый PSM 7, затем (если не вышло) точечный PSM 8
     configs = [
         r'--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789',
         r'--psm 8 --oem 3 -c tessedit_char_whitelist=0123456789'
     ]
 
-    # Пробуем каскад: сначала проверяем все картинки на PSM 7, затем на PSM 8
     last_res = ""
     for cfg in configs:
         for variant in [v1, v2]:
             try:
                 text = pytesseract.image_to_string(variant, config=cfg)
                 result = "".join(text.split()).strip()
-                if result == "23":  # Досрочный выход: если нашли эталон, прерываем тяжелые циклы
+                if result == "23":
                     return result
                 if result:
                     last_res = result
@@ -204,10 +183,6 @@ def run_ocr(img):
                 pass
     return last_res
 
-
-# ─────────────────────────────────────────────
-# НАЗВАНИЯ МЕТОДОВ
-# ─────────────────────────────────────────────
 
 METHOD_NAMES = {
     1:  "Нормализация + Оцу",
@@ -224,10 +199,6 @@ METHOD_NAMES = {
 }
 
 
-# ─────────────────────────────────────────────
-# ПОТОКОВАЯ ФУНКЦИЯ ОБРАБОТКИ ОДНОГО ФАЙЛА
-# ─────────────────────────────────────────────
-
 def worker(path, method_id):
     filename = os.path.basename(path)
     img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
@@ -238,10 +209,6 @@ def worker(path, method_id):
     result = run_ocr(processed)
     return filename, result
 
-
-# ─────────────────────────────────────────────
-# ГЛАВНЫЙ ПАЙПЛАЙН
-# ─────────────────────────────────────────────
 
 def main():
     print("=" * 60)
@@ -280,7 +247,6 @@ def main():
     methods_to_run = list(range(1, 12)) if choice == 12 else [choice]
     all_results = {}
 
-    # Определяем оптимальное количество потоков на основе ядер процессора
     num_threads = min(32, (os.cpu_count() or 4) + 4)
 
     for method_id in methods_to_run:
@@ -293,7 +259,6 @@ def main():
         correct = 0
         start   = time.perf_counter()
 
-        # Запуск параллельной обработки картинок в пуле потоков
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(worker, path, method_id) for path in image_paths]
             
